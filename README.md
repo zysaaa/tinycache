@@ -1,5 +1,5 @@
 # tinycache
-This project is used to learn the Go language.
+**This project is used to learn the Go language.**
 
 Concurrency-safe k-v store which supports expiration and a few other features:
 
@@ -7,7 +7,7 @@ Concurrency-safe k-v store which supports expiration and a few other features:
 
 2.ExpirePolicy: 
 
-* Accessed: The expiration time is refreshed each time the KEY is accessed.
+* Accessed: The expiration time is refreshed each time the key is accessed.
 
 * Created: The expiration time depends only on the time the key was created.
 
@@ -18,7 +18,7 @@ Concurrency-safe k-v store which supports expiration and a few other features:
 
 **Design:**
 
-An additional skiplist is used to maintain the data, and a timer is set each time on the element that will expire the soonest.
+An additional skiplist(http://github.com/huandu/skiplist) is used to maintain the data, and a timer is set each time on the element that will expire the soonest.
 
 **Demo**
 ```
