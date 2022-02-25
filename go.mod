@@ -1,4 +1,4 @@
-module tinycache
+module github.com/zysaaa/tinycache
 
 go 1.18
 
