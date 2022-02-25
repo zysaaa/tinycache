@@ -139,15 +139,9 @@ func (cache *cache) delete(item *Item) {
 
 func (cache *cache) reschedule() {
 	now := time.Now()
-	for {
-		if cache.skipList.Len() == 0 {
-			break
-		}
+	for cache.skipList.Len() != 0 {
 		front := cache.skipList.Front()
-		if front.Key().(*Item).deadline.Before(now) || front.Key().(*Item).deadline.Equal(now) {
-			cache.delete(front.Key().(*Item))
-			cache.notifyListener(front.Key().(*Item), Expired)
-		} else {
+		if front.Key().(*Item).deadline.After(now) {
 			front.Key().(*Item).cleaner = time.AfterFunc(front.Key().(*Item).deadline.Sub(now), func() {
 				cache.lock.Lock()
 				item := front.Key().(*Item)
@@ -155,6 +149,9 @@ func (cache *cache) reschedule() {
 				cache.deleteAndNotifyAndReschedule(item, Expired)
 			})
 			break
+		} else {
+			cache.delete(front.Key().(*Item))
+			cache.notifyListener(front.Key().(*Item), Expired)
 		}
 	}
 }
