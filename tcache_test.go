@@ -33,14 +33,14 @@ func shouldNotExist(cache *cache, key interface{}, t *testing.T) {
 }
 
 func TestSetAndExpireWithGlobalExpiration(t *testing.T) {
-	cache := New(expire)
+	cache := NewCacheBuilder().WithExpiration(expire).Build()
 	cache.Put(key, value)
 	<-time.After(expire + 5*time.Millisecond)
 	shouldNotExist(cache, key, t)
 }
 
 func TestSetAndExpireWithSpecExpiration(t *testing.T) {
-	cache := New(expire)
+	cache := NewCacheBuilder().WithExpiration(expire).Build()
 	cache.PutWithTtl(key, value, expire+50*time.Millisecond)
 	<-time.After(expire + 5*time.Millisecond)
 	shouldExist(cache, key, t)
@@ -130,8 +130,9 @@ func TestExpirePolicy_CREATED_GET(t *testing.T) {
 
 func TestExpirePolicy_ACCESSED(t *testing.T) {
 	ch := make(chan interface{})
-	cache := NewCacheBuilder().WithExpiration(expire * 3).WithMaxSize(2).
-		WithExpirePolicy(Accessed).WithRemoveListener(func(key, value interface{}, reason RemoveReason) {
+	cache := NewCacheBuilder().
+		WithExpiration(expire * 3).WithMaxSize(2).
+		WithExpirePolicy(Created).WithRemoveListener(func(key, value interface{}, reason RemoveReason) {
 		ch <- key
 		ch <- value
 	}).Build()

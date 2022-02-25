@@ -1,4 +1,6 @@
 # tinycache
+This project is used to learn the Go language.
+
 Concurrency-safe k-v store which supports expiration and a few other features:
 
 1.Set the global expiration time or the expiration time of a single key.
@@ -20,6 +22,15 @@ An additional skiplist is used to maintain the data, and a timer is set each tim
 
 **Demo**
 ```
+// go get github.com/zysaaa/tinycache
+// import "github.com/zysaaa/tinycache"
 
-
+cache := tinycache.NewCacheBuilder().
+		WithExpiration(expire * 3).
+		WithMaxSize(2).
+		WithExpirePolicy(Created).
+		WithRemoveListener(func(key, value interface{}, reason RemoveReason) {
+	}).Build()
+cache.Put("a", "a")
+cache.PutWithTtl("b", "b", 500*time.Millisecond)
 ```

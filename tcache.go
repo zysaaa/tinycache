@@ -8,9 +8,7 @@ import (
 	"time"
 )
 
-// todo
-// 重复触发removeListener test
-// 并发测试
+// todo test
 
 type cache struct {
 	lock             sync.RWMutex
@@ -132,22 +130,7 @@ func (cache *cache) put(key interface{}, value interface{}, ttl time.Duration) i
 	if len(cache.data) == cache.maxSize {
 		// Remove "smallest" item from skipList
 		front := cache.skipList.Front()
-		// No need to stop it
-		//if front != nil {
-		//	item := front.Key().(*Item)
-		//	if item.cleaner != nil {
-		//		item.cleaner.Stop()
-		//	}
-		//}
-		//delete(cache.data, front.Key().(*Item).key)
-		// delete
-		cache.delete(front.Key().(*Item))
-		// notify
-		cache.notifyListener(front.Key().(*Item), Evict)
-		// re-schedule
-		cache.reschedule()
-		//cache.DeleteKeyAndNotifyAndStartNextCleaner(front.Key().(*Item), false)
-		//cache.notifyListener(front.Key().(*Item), Evict)
+		cache.deleteAndNotifyAndReschedule(front.Key().(*Item), Evict)
 	}
 
 	cache.data[key] = &item
@@ -160,12 +143,7 @@ func (cache *cache) put(key interface{}, value interface{}, ttl time.Duration) i
 			item.cleaner = time.AfterFunc(item.deadline.Sub(now), func() {
 				cache.lock.Lock()
 				defer cache.lock.Unlock()
-				// delete
-				cache.delete(&item)
-				// notify
-				cache.notifyListener(&item, Expired)
-				// re-schedule
-				cache.reschedule()
+				cache.deleteAndNotifyAndReschedule(&item, Expired)
 			})
 		} else {
 			first := cache.skipList.Front()
@@ -174,18 +152,22 @@ func (cache *cache) put(key interface{}, value interface{}, ttl time.Duration) i
 				item.cleaner = time.AfterFunc(item.deadline.Sub(now), func() {
 					cache.lock.Lock()
 					defer cache.lock.Unlock()
-					// delete
-					cache.delete(&item)
-					// notify
-					cache.notifyListener(&item, Expired)
-					// re-schedule
-					cache.reschedule()
+					cache.deleteAndNotifyAndReschedule(&item, Expired)
 				})
 			}
 		}
 	}
 
 	return original
+}
+
+func (cache *cache) deleteAndNotifyAndReschedule(item *Item, reason RemoveReason) {
+	// delete
+	cache.delete(item)
+	// notify
+	cache.notifyListener(item, reason)
+	// re-schedule
+	cache.reschedule()
 }
 
 func (cache *cache) notifyListener(item *Item, reason RemoveReason) {
@@ -204,7 +186,6 @@ func (cache *cache) delete(item *Item) {
 
 func (cache *cache) reschedule() {
 	now := time.Now()
-	// 启动下一个定时器
 	for {
 		if cache.skipList.Len() == 0 {
 			break
@@ -215,38 +196,15 @@ func (cache *cache) reschedule() {
 			cache.notifyListener(front.Key().(*Item), Expired)
 		} else {
 			front.Key().(*Item).cleaner = time.AfterFunc(front.Key().(*Item).deadline.Sub(now), func() {
-				cache.DeleteKeyAndNotifyAndStartNextCleaner(front.Key().(*Item), true)
-			})
-			break
-		}
-	}
-}
-
-func (cache *cache) DeleteKeyAndNotifyAndStartNextCleaner(item *Item, lock bool) {
-	if lock {
-		cache.lock.Lock()
-		defer cache.lock.Unlock()
-	}
-	now := time.Now()
-
-	delete(cache.data, item.key)
-	// 避免重复通知
-	if cache.skipList.Remove(item) != nil {
-		cache.notifyListener(item, Expired)
-	}
-	// 启动下一个定时器
-	for {
-		if cache.skipList.Len() == 0 {
-			break
-		}
-		front := cache.skipList.Front()
-		if front.Key().(*Item).deadline.Before(now) || front.Key().(*Item).deadline.Equal(now) {
-			cache.skipList.Remove(front.Key().(*Item))
-			delete(cache.data, front.Key().(*Item).key)
-			cache.notifyListener(item, Expired)
-		} else {
-			front.Key().(*Item).cleaner = time.AfterFunc(front.Key().(*Item).deadline.Sub(now), func() {
-				cache.DeleteKeyAndNotifyAndStartNextCleaner(front.Key().(*Item), true)
+				cache.lock.Lock()
+				item := front.Key().(*Item)
+				defer cache.lock.Unlock()
+				// delete
+				cache.delete(item)
+				// notify
+				cache.notifyListener(item, Expired)
+				// re-schedule
+				cache.reschedule()
 			})
 			break
 		}
@@ -267,18 +225,6 @@ func (cache *cache) Get(key interface{}) (interface{}, bool) {
 		return data.value, true
 	}
 	return nil, false
-}
-
-func New(globalExpiration time.Duration) *cache {
-	c := &cache{
-		globalExpiration: globalExpiration,
-		data:             map[interface{}]*Item{},
-		lock:             sync.RWMutex{},
-		skipList:         skiplist.New(comparableFunc),
-		maxSize:          1<<63 - 1,
-		expirePolicy:     Accessed,
-	}
-	return c
 }
 
 var comparableFunc = skiplist.GreaterThanFunc(func(k1, k2 interface{}) int {
