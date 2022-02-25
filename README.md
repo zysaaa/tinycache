@@ -25,12 +25,15 @@ An additional skiplist(http://github.com/huandu/skiplist) is used to maintain th
 // go get github.com/zysaaa/tinycache
 // import "github.com/zysaaa/tinycache"
 
-cache := tinycache.NewCacheBuilder().
-		WithExpiration(expire * 3).
+ cache := tinycache.NewCacheBuilder().
+		WithExpiration(time.Second).
 		WithMaxSize(2).
-		WithExpirePolicy(Created).
-		WithRemoveListener(func(key, value interface{}, reason RemoveReason) {
-	}).Build()
-cache.Put("a", "a")
-cache.PutWithTtl("b", "b", 500*time.Millisecond)
+		WithExpirePolicy(tinycache.Created).
+		WithRemoveListener(func(key, value interface{}, reason tinycache.RemoveReason) {
+			if reason == tinycache.Expired { // if reason == tinycache.Evict {
+				//
+			}
+		}).Build()
+ cache.Put("a", "a")
+ cache.PutWithTtl("b", "b", 500*time.Millisecond)
 ```
