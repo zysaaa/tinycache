@@ -2,12 +2,9 @@ package tinycache
 
 import (
 	"github.com/huandu/skiplist"
-	"math"
 	"sync"
 	"time"
 )
-
-// todo test
 
 type cache struct {
 	lock             sync.RWMutex
@@ -19,67 +16,20 @@ type cache struct {
 	expirePolicy     ExpirePolicy   // Configurable, default value: ACCESSED
 }
 
-type CacheBuilder struct {
-	cache *cache
-}
-
-func NewCacheBuilder() *CacheBuilder {
-	return &CacheBuilder{
-		cache: &cache{
-			data:             map[interface{}]*Item{},
-			lock:             sync.RWMutex{},
-			skipList:         skiplist.New(comparableFunc),
-			maxSize:          math.MaxInt,
-			expirePolicy:     Accessed,
-			globalExpiration: -1,
-		}}
-}
-
-func (b *CacheBuilder) WithExpiration(globalExpiration time.Duration) *CacheBuilder {
-	b.cache.globalExpiration = globalExpiration
-	return b
-}
-
-func (b *CacheBuilder) WithRemoveListener(removeListener RemoveListener) *CacheBuilder {
-	b.cache.removeListener = removeListener
-	return b
-}
-
-func (b *CacheBuilder) WithMaxSize(maxSize int) *CacheBuilder {
-	b.cache.maxSize = maxSize
-	return b
-}
-
-func (b *CacheBuilder) WithExpirePolicy(expirePolicy ExpirePolicy) *CacheBuilder {
-	b.cache.expirePolicy = expirePolicy
-	return b
-}
-
-func (b *CacheBuilder) Build() *cache {
-	return b.cache
-}
-
-type RemoveReason int
-type RemoveListener func(key, value interface{}, reason RemoveReason)
-
-func (cache *cache) SetRemoveListener(f func(key, value interface{}, reason RemoveReason)) {
-	// Do we need lock here?
-	//cache.lock.Lock()
-	//defer cache.lock.Unlock()
-	cache.removeListener = f
-}
-
 const (
 	Expired RemoveReason = iota
 	Evict
 )
 
-type ExpirePolicy int
+type RemoveReason int
+type RemoveListener func(key, value interface{}, reason RemoveReason)
 
 const (
 	Accessed ExpirePolicy = iota
 	Created
 )
+
+type ExpirePolicy int
 
 const NeverExpire = -1
 
@@ -97,27 +47,32 @@ func (cache *cache) Put(key interface{}, value interface{}) interface{} {
 	return cache.put(key, value, cache.globalExpiration)
 }
 
-func (cache *cache) ComputeIfAbsent(key interface{}, f func(key interface{}) interface{}) interface{} {
+func (cache *cache) PutWithTtl(key interface{}, value interface{}, ttl time.Duration) interface{} {
 	cache.lock.Lock()
 	defer cache.lock.Unlock()
+	return cache.put(key, value, ttl)
+}
 
-	item, ok := cache.data[key]
+func (cache *cache) Get(key interface{}) (interface{}, bool) {
+	cache.lock.RLock()
+	defer cache.lock.RUnlock()
+	data, ok := cache.data[key]
 	if ok {
-		return item.value
+		if cache.expirePolicy == Accessed {
+			cache.skipList.Remove(data)
+			data.deadline = time.Now().Add(data.ttl)
+			cache.skipList.Set(data, struct{}{})
+			cache.data[data.key] = data
+		}
+		return data.value, true
 	}
-	return cache.put(key, f(key), cache.globalExpiration)
+	return nil, false
 }
 
 func (cache *cache) Size() int {
 	cache.lock.RLock()
 	defer cache.lock.RUnlock()
 	return len(cache.data)
-}
-
-func (cache *cache) PutWithTtl(key interface{}, value interface{}, ttl time.Duration) interface{} {
-	cache.lock.Lock()
-	defer cache.lock.Unlock()
-	return cache.put(key, value, ttl)
 }
 
 func (cache *cache) put(key interface{}, value interface{}, ttl time.Duration) interface{} {
@@ -197,29 +152,11 @@ func (cache *cache) reschedule() {
 				cache.lock.Lock()
 				item := front.Key().(*Item)
 				defer cache.lock.Unlock()
-				cache.delete(item)
-				cache.notifyListener(item, Expired)
-				cache.reschedule()
+				cache.deleteAndNotifyAndReschedule(item, Expired)
 			})
 			break
 		}
 	}
-}
-
-func (cache *cache) Get(key interface{}) (interface{}, bool) {
-	cache.lock.RLock()
-	defer cache.lock.RUnlock()
-	data, ok := cache.data[key]
-	if ok {
-		if cache.expirePolicy == Accessed {
-			cache.skipList.Remove(data)
-			data.deadline = time.Now().Add(data.ttl)
-			cache.skipList.Set(data, struct{}{})
-			cache.data[data.key] = data
-		}
-		return data.value, true
-	}
-	return nil, false
 }
 
 var comparableFunc = skiplist.GreaterThanFunc(func(k1, k2 interface{}) int {
