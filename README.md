@@ -20,7 +20,7 @@ Concurrency-safe k-v store which supports expiration and a few other features:
 
 An additional skiplist(http://github.com/huandu/skiplist) is used to maintain the data, and a timer is set each time on the element that will expire the soonest.
 
-**Demo**
+**Demo:**
 ```
 // go get github.com/zysaaa/tinycache
 // import "github.com/zysaaa/tinycache"
