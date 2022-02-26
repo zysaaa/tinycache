@@ -1,7 +1,7 @@
 package tinycache
 
 import (
-	"fmt"
+	"math/rand"
 	"sync"
 	"testing"
 	"time"
@@ -48,8 +48,25 @@ func TestSetAndExpireWithSpecExpiration(t *testing.T) {
 	shouldNotExist(cache, key, t)
 }
 
-func TestNotifyListenerTriggerByExpired(t *testing.T) {
+func TestNeverExpire(t *testing.T) {
+	cache := NewCacheBuilder().WithExpiration(expire).Build()
+	cache.PutWithTtl(key, value, NeverExpire)
+	<-time.After(expire + 5*time.Millisecond)
+	shouldExist(cache, key, t)
+}
 
+func TestNeverExpire_2(t *testing.T) {
+	cache := NewCacheBuilder().WithExpiration(3 * expire).WithMaxSize(2).Build()
+	cache.PutWithTtl(key, value, NeverExpire)
+	<-time.After(expire)
+	cache.Put(key1, value1)
+	<-time.After(expire + 5*time.Millisecond)
+	cache.Put(key2, value2)
+	shouldExist(cache, key, t)
+	shouldNotExist(cache, key1, t)
+}
+
+func TestNotifyListenerTriggerByExpired(t *testing.T) {
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	ch := make(chan RemoveReason)
@@ -84,7 +101,6 @@ func TestNotifyListenerTriggerByMaxSize(t *testing.T) {
 	if acceptValue := <-ch; acceptValue != value {
 		t.Error("Value should be `value`")
 	}
-	time.Sleep(time.Second)
 }
 
 func TestExpirePolicy_CREATED(t *testing.T) {
@@ -138,20 +154,58 @@ func TestExpirePolicy_ACCESSED(t *testing.T) {
 	}).Build()
 	cache.Put(key, value)
 	<-time.After(expire)
-	cache.Get(key)
 	cache.Put(key1, value1)
+	<-time.After(expire)
+	cache.Get(key)
 	cache.Put(key2, value2)
-	if acceptKey := <-ch; acceptKey != key1 {
-		fmt.Println(acceptKey)
+	if acceptKey := <-ch; acceptKey != key {
 		t.Error("Key should be `key1`")
 	}
-	if acceptValue := <-ch; acceptValue != value1 {
+	if acceptValue := <-ch; acceptValue != value {
 		t.Error("Value should be `value1`")
 	}
 }
 
-func TestConcurrency(t *testing.T) {
+func TestConcurrency_2(t *testing.T) {
+	triggerCnt := 0
+	lock := sync.Mutex{}
+	cache := NewCacheBuilder().
+		WithExpiration(expire).WithRemoveListener(func(key, value interface{}, reason RemoveReason) {
+		lock.Lock()
+		defer lock.Unlock()
+		triggerCnt++
+	}).Build()
+	wg := sync.WaitGroup{}
+	wg.Add(1000)
+	for i := 0; i < 1000; i++ {
+		go func() {
+			cache.Put(rand.Float32(), struct{}{})
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+	<-time.After(2 * expire)
+	if triggerCnt != 1000 {
+		t.Error("TriggerCnt should be 1000, but", triggerCnt)
+	}
+}
 
+func TestConcurrency(t *testing.T) {
+	cache := NewCacheBuilder().
+		WithExpiration(expire).Build()
+	wg := sync.WaitGroup{}
+	wg.Add(1000)
+	for i := 0; i < 1000; i++ {
+		go func() {
+			cache.Put(rand.Float32(), struct{}{})
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+	<-time.After(expire * 2)
+	if cache.Size() != 0 {
+		t.Error("Map should be empty")
+	}
 }
 
 func waitTimeout(wg *sync.WaitGroup, timeout time.Duration) bool {

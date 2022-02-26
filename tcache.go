@@ -16,20 +16,21 @@ type cache struct {
 	expirePolicy     ExpirePolicy   // Configurable, default value: ACCESSED
 }
 
+type RemoveReason int
+
 const (
 	Expired RemoveReason = iota
 	Evict
 )
 
-type RemoveReason int
 type RemoveListener func(key, value interface{}, reason RemoveReason)
+
+type ExpirePolicy int
 
 const (
 	Accessed ExpirePolicy = iota
 	Created
 )
-
-type ExpirePolicy int
 
 const NeverExpire = -1
 
@@ -90,7 +91,6 @@ func (cache *cache) put(key interface{}, value interface{}, ttl time.Duration) i
 		ttl:      ttl,
 	}
 	if len(cache.data) == cache.maxSize {
-		// Remove "smallest" item from skipList
 		front := cache.skipList.Front()
 		cache.deleteAndNotifyAndReschedule(front.Key().(*Item), Evict)
 	}
@@ -119,8 +119,9 @@ func (cache *cache) put(key interface{}, value interface{}, ttl time.Duration) i
 }
 
 func (cache *cache) deleteAndNotifyAndReschedule(item *Item, reason RemoveReason) {
-	cache.delete(item)
-	cache.notifyListener(item, reason)
+	if cache.delete(item) {
+		cache.notifyListener(item, reason)
+	}
 	cache.reschedule()
 }
 
@@ -132,9 +133,9 @@ func (cache *cache) notifyListener(item *Item, reason RemoveReason) {
 	}
 }
 
-func (cache *cache) delete(item *Item) {
+func (cache *cache) delete(item *Item) bool {
 	delete(cache.data, item.key)
-	cache.skipList.Remove(item)
+	return cache.skipList.Remove(item) != nil
 }
 
 func (cache *cache) reschedule() {
@@ -150,8 +151,9 @@ func (cache *cache) reschedule() {
 			})
 			break
 		} else {
-			cache.delete(front.Key().(*Item))
-			cache.notifyListener(front.Key().(*Item), Expired)
+			if cache.delete(front.Key().(*Item)) {
+				cache.notifyListener(front.Key().(*Item), Expired)
+			}
 		}
 	}
 }
